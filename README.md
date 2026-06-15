@@ -1,0 +1,12 @@
+python train.py \
+  --train_csv train_list.csv \
+  --val_csv val_list.csv \
+  --output_dir scalehybrid_v2 \
+  --backbone custom \
+  --batch_size 2 \
+  --num_epochs 150 \
+  --learning_rate 1e-4 \
+  --weight_decay 0.01 \
+  --val_interval 5 \
+  --save_interval 10 \
+  --transformer_min_stage 3
