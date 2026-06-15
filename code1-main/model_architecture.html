@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>ScaleHybrid Architecture</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; background: #0f1117; color: #e0e0e0; padding: 30px 20px; }
+
+  h1 { text-align: center; font-size: 22px; color: #fff; margin-bottom: 6px; letter-spacing: 1px; }
+  .subtitle { text-align: center; font-size: 13px; color: #888; margin-bottom: 30px; }
+
+  .diagram { display: flex; flex-direction: column; align-items: center; gap: 0; width: 100%; max-width: 1100px; margin: 0 auto; }
+
+  /* ── INPUT ROW ── */
+  .input-row { display: flex; gap: 16px; align-items: center; margin-bottom: 6px; }
+  .input-box {
+    background: #1e2235; border: 1.5px solid #4a90d9; border-radius: 10px;
+    padding: 10px 22px; text-align: center; font-size: 13px; color: #7ec8ff;
+  }
+  .input-box .label { font-size: 11px; color: #aaa; margin-bottom: 3px; }
+  .plus { font-size: 20px; color: #555; }
+
+  /* ── SECTION LABELS ── */
+  .section-wrap { width: 100%; display: flex; flex-direction: column; align-items: center; }
+  .section-label {
+    width: 100%; text-align: center; font-size: 11px; font-weight: 700;
+    letter-spacing: 2px; text-transform: uppercase; padding: 5px 0;
+    border-radius: 4px 4px 0 0; margin-top: 10px;
+  }
+  .label-cnn   { background: #1a2a1a; color: #6fcf6f; border-top: 2px solid #6fcf6f; }
+  .label-trans { background: #1a1a2e; color: #818cf8; border-top: 2px solid #818cf8; }
+  .label-dec   { background: #2a1a1a; color: #f97316; border-top: 2px solid #f97316; }
+
+  /* ── STAGE ROW ── */
+  .stage-row {
+    width: 100%; display: flex; align-items: stretch; gap: 0;
+    border-left: 2px solid #333; border-right: 2px solid #333;
+  }
+  .stage-row.last { border-bottom: 2px solid #333; border-radius: 0 0 8px 8px; }
+
+  /* ── STAGE BLOCK ── */
+  .stage {
+    flex: 1; display: flex; flex-direction: column;
+    align-items: center; padding: 12px 8px; position: relative;
+    border-right: 1px solid #2a2a2a;
+  }
+  .stage:last-child { border-right: none; }
+
+  .stage-title { font-size: 12px; font-weight: 700; margin-bottom: 8px; text-align: center; }
+  .stage-title.cnn   { color: #6fcf6f; }
+  .stage-title.trans { color: #818cf8; }
+  .stage-title.dec   { color: #f97316; }
+
+  /* ── MODULE BOXES ── */
+  .mod {
+    width: 100%; border-radius: 7px; padding: 7px 8px;
+    margin: 3px 0; font-size: 11px; text-align: center; line-height: 1.4;
+  }
+  .mod-resblock  { background: #1a3320; border: 1px solid #3a7d44; color: #a3e4a3; }
+  .mod-film      { background: #0e2a2a; border: 1px solid #2a9d8f; color: #7ce0d3; }
+  .mod-aspp      { background: #1f2a10; border: 1px solid #6a9e2a; color: #b8d96a; }
+  .mod-feat      { background: #0d1f3a; border: 1px solid #2a5fa8; color: #7ab8ff; font-weight: 700; font-size: 10px; }
+  .mod-attn-eff  { background: #1a1a3a; border: 1px solid #5a5af0; color: #a0a0ff; }
+  .mod-attn-def  { background: #12122e; border: 1px solid #7c3aed; color: #c4b5fd; }
+  .mod-posenc    { background: #1a1220; border: 1px solid #5b3a7e; color: #c084fc; font-size: 10px; }
+  .mod-tfeat     { background: #0d1f3a; border: 1px solid #2a5fa8; color: #93c5fd; font-weight: 700; font-size: 10px; }
+  .mod-fpn       { background: #3a1a0a; border: 1px solid #c2571a; color: #fdba74; }
+  .mod-upsamp    { background: #2a1a0a; border: 1px solid #b45309; color: #fcd34d; }
+  .mod-dynhead   { background: #3a0a1a; border: 1px solid #be185d; color: #f9a8d4; }
+  .mod-boundary  { background: #1a0a2a; border: 1px solid #7e22ce; color: #d8b4fe; }
+  .mod-out       { background: #0f1a0f; border: 1.5px solid #16a34a; color: #86efac; font-weight: 700; }
+  .mod-token     { background: #1a1a0a; border: 1px solid #ca8a04; color: #fde68a; }
+
+  /* ── ARROW ── */
+  .arrow { font-size: 18px; color: #555; margin: 2px 0; line-height: 1; }
+  .arrow-right { font-size: 16px; color: #555; }
+
+  /* ── TOKEN FLOW ── */
+  .token-section {
+    display: flex; align-items: center; justify-content: center;
+    gap: 20px; margin: 8px 0; width: 100%;
+  }
+  .token-box {
+    background: #1a1a0a; border: 1.5px solid #ca8a04;
+    border-radius: 8px; padding: 8px 18px; text-align: center;
+  }
+  .token-box .tname { font-size: 12px; color: #fde68a; font-weight: 700; }
+  .token-box .tdim  { font-size: 10px; color: #a08020; margin-top: 2px; }
+  .token-arrow { font-size: 22px; color: #ca8a04; }
+
+  /* ── SKIP CONNECTION INDICATOR ── */
+  .skip-label { font-size: 9px; color: #6fcf6f; position: absolute; right: 4px; top: 4px; }
+
+  /* ── LOSS ROW ── */
+  .loss-row {
+    display: flex; gap: 12px; margin-top: 16px; justify-content: center; flex-wrap: wrap;
+  }
+  .loss-box {
+    background: #12121a; border: 1px solid #4a4a6a;
+    border-radius: 7px; padding: 7px 16px; font-size: 11px; color: #a0a0c0; text-align: center;
+  }
+  .loss-box b { color: #c0c0f0; }
+
+  /* ── OUTPUT ROW ── */
+  .out-row { display: flex; gap: 16px; margin-top: 10px; justify-content: center; flex-wrap: wrap; }
+  .out-box {
+    background: #0a1a0a; border: 2px solid #16a34a;
+    border-radius: 8px; padding: 10px 20px; text-align: center;
+  }
+  .out-box .oname { font-size: 13px; color: #86efac; font-weight: 700; }
+  .out-box .odim  { font-size: 10px; color: #4a7a4a; margin-top: 3px; }
+
+  /* ── CONNECTING ARROW BETWEEN SECTIONS ── */
+  .section-arrow { font-size: 28px; color: #444; margin: 0; line-height: 1.2; }
+
+  /* ── BOTTLENECK NOTE ── */
+  .note {
+    margin-top: 20px; background: #12121a; border: 1px solid #333;
+    border-radius: 8px; padding: 12px 24px; font-size: 11px; color: #777;
+    text-align: center; max-width: 700px;
+  }
+  .note b { color: #aaa; }
+
+  /* ── DIVIDER ── */
+  .divider { width: 2px; background: #2a2a2a; align-self: stretch; margin: 0 6px; }
+  .h-divider { height: 1px; background: #2a2a2a; width: 100%; margin: 4px 0; }
+
+  /* column header bar */
+  .col-headers {
+    display: flex; width: 100%; margin-bottom: 0;
+    border: 2px solid #333; border-bottom: none; border-radius: 8px 8px 0 0;
+    overflow: hidden;
+  }
+  .col-hdr {
+    flex: 1; text-align: center; padding: 6px 4px;
+    font-size: 10px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase;
+  }
+  .col-hdr.cnn   { background: #1a2a1a; color: #6fcf6f; border-right: 1px solid #2a2a2a; }
+  .col-hdr.trans { background: #1a1a2e; color: #818cf8; border-right: 1px solid #2a2a2a; }
+  .col-hdr.dec   { background: #2a1a1a; color: #f97316; }
+</style>
+</head>
+<body>
+
+<h1>ScaleHybrid Architecture</h1>
+<p class="subtitle">Multi-Scale Hybrid CNN-Transformer for Renal Pathology Segmentation</p>
+
+<div class="diagram">
+
+  <!-- INPUT -->
+  <div class="input-row">
+    <div class="input-box"><div class="label">Image</div>[B, 3, 512, 512]</div>
+    <div class="plus">+</div>
+    <div class="input-box"><div class="label">Task ID</div>0–5</div>
+    <div class="plus">+</div>
+    <div class="input-box"><div class="label">Scale ID</div>0–3</div>
+  </div>
+
+  <div class="arrow">↓</div>
+
+  <!-- TOKEN LOOKUP -->
+  <div class="token-section">
+    <div class="token-box">
+      <div class="tname">cls_emb</div>
+      <div class="tdim">[6 × 512]</div>
+    </div>
+    <div class="token-arrow">→ token = cls + sls →</div>
+    <div class="token-box">
+      <div class="tname">sls_emb</div>
+      <div class="tdim">[4 × 512]</div>
+    </div>
+  </div>
+
+  <div style="font-size:10px;color:#ca8a04;margin:2px 0 8px 0;text-align:center;">
+    Same token pair flows through ALL three stages
+  </div>
+
+  <!-- COLUMN HEADERS -->
+  <div class="col-headers" style="max-width:1060px;width:100%;">
+    <div class="col-hdr cnn">CNN Encoder &nbsp;(no stem)</div>
+    <div class="col-hdr trans">Transformer Encoder</div>
+    <div class="col-hdr dec">Decoder</div>
+  </div>
+
+  <!-- MAIN THREE-COLUMN LAYOUT -->
+  <div class="stage-row last" style="max-width:1060px;width:100%;align-items:flex-start;padding:14px 0 14px 0;">
+
+    <!-- ══ CNN ENCODER ══ -->
+    <div class="stage">
+      <div style="font-size:10px;color:#555;text-align:center;margin-bottom:6px;">Input → raw RGB, no downsampling</div>
+
+      <div class="mod mod-resblock">2× ResBlock<br><b>3 → 64</b>, stride=1</div>
+      <div class="mod mod-film">FiLM &nbsp; γ·x + β &nbsp; (token → [γ,β])</div>
+      <div class="mod mod-feat">C1 &nbsp; [64, 512, 512]</div>
+
+      <div class="arrow">↓</div>
+
+      <div class="mod mod-resblock">2× ResBlock<br><b>64 → 128</b>, stride=2</div>
+      <div class="mod mod-film">FiLM</div>
+      <div class="mod mod-feat">C2 &nbsp; [128, 256, 256]</div>
+
+      <div class="arrow">↓</div>
+
+      <div class="mod mod-resblock">2× ResBlock<br><b>128 → 256</b>, stride=2</div>
+      <div class="mod mod-film">FiLM</div>
+      <div class="mod mod-feat">C3 &nbsp; [256, 128, 128]</div>
+
+      <div class="arrow">↓</div>
+
+      <div class="mod mod-resblock">2× ResBlock<br><b>256 → 512</b>, stride=2</div>
+      <div class="mod mod-film">FiLM</div>
+      <div class="mod mod-aspp">ASPP &nbsp; dilations [1, 2, 4, 6]<br>512 → 256</div>
+      <div class="mod mod-feat">C4 &nbsp; [256, 64, 64]</div>
+
+      <div style="margin-top:10px;font-size:10px;color:#555;text-align:center;">
+        Bottleneck: <b style="color:#6fcf6f;">64×64</b><br>
+        <span style="font-size:9px;">(vs 16×16 with stem)</span>
+      </div>
+    </div>
+
+    <!-- DIVIDER -->
+    <div class="divider"></div>
+
+    <!-- ══ TRANSFORMER ENCODER ══ -->
+    <div class="stage">
+      <div style="font-size:10px;color:#555;text-align:center;margin-bottom:6px;">
+        Token gating at every block
+      </div>
+
+      <div class="mod mod-posenc">PosEnc2D</div>
+      <div class="mod mod-attn-eff">EfficientAttention<br>sr=32 · 2 heads · depth=1</div>
+      <div class="mod mod-tfeat">T1 &nbsp; [64, 512, 512]</div>
+
+      <div class="arrow">↓</div>
+
+      <div class="mod mod-posenc">PosEnc2D</div>
+      <div class="mod mod-attn-eff">EfficientAttention<br>sr=16 · 4 heads · depth=1</div>
+      <div class="mod mod-tfeat">T2 &nbsp; [128, 256, 256]</div>
+
+      <div class="arrow">↓</div>
+
+      <div class="mod mod-posenc">PosEnc2D</div>
+      <div class="mod mod-attn-def">DeformableAttention<br>8 heads · depth=2<br><span style="font-size:9px;">offset scale λ∈{1.0,1.5,2.0,3.0}</span></div>
+      <div class="mod mod-tfeat">T3 &nbsp; [256, 128, 128]</div>
+
+      <div class="arrow">↓</div>
+
+      <div class="mod mod-posenc">PosEnc2D</div>
+      <div class="mod mod-attn-def">DeformableAttention<br>8 heads · depth=1</div>
+      <div class="mod mod-tfeat">T4 &nbsp; [256, 64, 64]</div>
+
+      <div style="margin-top:10px;padding:6px;background:#12121a;border-radius:6px;font-size:10px;color:#818cf8;text-align:center;">
+        Gate: x = x + σ(W·[c<sub>t</sub>;s<sub>s</sub>]) ⊙ Attn(x)
+      </div>
+    </div>
+
+    <!-- DIVIDER -->
+    <div class="divider"></div>
+
+    <!-- ══ DECODER ══ -->
+    <div class="stage">
+      <div style="font-size:10px;color:#555;text-align:center;margin-bottom:6px;">
+        T1, T2, T3, T4 from transformer
+      </div>
+
+      <div class="mod mod-fpn">
+        FPN Fusion<br>
+        lateral Conv1×1 → 256ch each<br>
+        top-down add + CBAM attention<br>
+        P1[256,512²] P2[256,256²]<br>P3[256,128²] P4[256,64²]
+      </div>
+
+      <div class="arrow">↓</div>
+
+      <div class="mod mod-upsamp">
+        Progressive Upsample<br>
+        P4→P3→P2→P1<br>
+        upsample + concat + 2×ConvBlock + CBAM
+      </div>
+
+      <div class="arrow">↓</div>
+
+      <div class="mod mod-upsamp">
+        4× Bilinear Upsample<br>
+        ConvBlock(256→64) → ConvBlock(64→16)<br>
+        [B, 16, 512, 512]
+      </div>
+
+      <div class="arrow">↓</div>
+
+      <div style="display:flex;gap:6px;width:100%;margin:4px 0;">
+        <div class="mod mod-dynhead" style="flex:1;">
+          Dynamic Head<br>
+          <span style="font-size:9px;">
+            θ = Controller(P4)<br>+ MLP([c<sub>t</sub> ; s<sub>s</sub>])<br>
+            3-layer conv 8→8→2
+          </span>
+        </div>
+        <div class="mod mod-boundary" style="flex:1;">
+          Boundary Head<br>
+          <span style="font-size:9px;">
+            Laplacian kernel<br>+ Sobel gradient<br>→ boundary map
+          </span>
+        </div>
+      </div>
+
+      <div class="h-divider"></div>
+
+      <div class="mod mod-out">seg_logits &nbsp; [B, 2, 512, 512]</div>
+      <div class="mod mod-out">boundary_logits &nbsp; [B, 1, 512, 512]</div>
+      <div class="mod" style="background:#0f1a20;border:1px dashed #334;color:#446;font-size:10px;">
+        aux_logits [B, 2, 512, 512]<br>(from C4, training only)
+      </div>
+    </div>
+
+  </div>
+
+  <!-- LOSS -->
+  <div style="margin-top:14px;font-size:11px;color:#555;text-align:center;">Loss Function</div>
+  <div class="loss-row">
+    <div class="loss-box"><b>Dice</b><br>class imbalance</div>
+    <div class="loss-box" style="color:#555;">+</div>
+    <div class="loss-box"><b>0.5 × Focal</b><br>hard pixels</div>
+    <div class="loss-box" style="color:#555;">+</div>
+    <div class="loss-box"><b>0.5 × Boundary</b><br>edge supervision</div>
+    <div class="loss-box" style="color:#555;">+</div>
+    <div class="loss-box"><b>0.4 × Auxiliary</b><br>deep supervision</div>
+  </div>
+
+  <!-- NOTE -->
+  <div class="note">
+    <b>Key design choices:</b> &nbsp;
+    No stem — bottleneck preserved at <b style="color:#6fcf6f;">64×64</b> (16× more spatial positions than original 16×16) &nbsp;·&nbsp;
+    <b style="color:#7ce0d3;">FiLM</b> at every CNN stage (not just bottleneck) &nbsp;·&nbsp;
+    <b style="color:#c4b5fd;">Deformable attention</b> with scale-adaptive offsets λ∈{1.0,1.5,2.0,3.0} &nbsp;·&nbsp;
+    <b style="color:#f9a8d4;">Dynamic head</b> conditioned on same token pair
+  </div>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,391 @@
+% ScaleHybrid: Multi-Scale Hybrid Transformers with Learnable Tokens
+% for Renal Pathology Segmentation
+% MICCAI 2026 Submission
+%
+\documentclass[runningheads]{llncs}
+%
+\usepackage[T1]{fontenc}
+\usepackage{graphicx,verbatim}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{booktabs}
+\usepackage{multirow}
+%
+% If you use the hyperref package, please uncomment the following two lines
+% to display URLs in blue roman font according to Springer's eBook style:
+%\usepackage{color}
+%\renewcommand\UrlFont{\color{blue}\rmfamily}
+%\urlstyle{rm}
+%
+\begin{document}
+%
+\title{ScaleHybrid: Multi-Scale Hybrid Transformers with Learnable Tokens for Renal Pathology Segmentation}
+%
+\titlerunning{ScaleHybrid for Renal Pathology Segmentation}
+%
+\begin{comment}  %% Removed for anonymized MICCAI submission
+\author{First Author\inst{1} \and
+Second Author\inst{1} \and
+Third Author\inst{1}}
+%
+\authorrunning{F. Author et al.}
+%
+\institute{University Name, City, Country\\
+\email{\{first,second,third\}@university.edu}}
+\end{comment}
+
+\author{Paper ID: 5660 \\ Anonymized Authors}  %% Added for anonymized MICCAI submission
+\authorrunning{Anonymized Author et al.}
+\institute{Anonymized Affiliations \\
+    \email{email@anonymized.com}}
+%
+\maketitle
+%
+\begin{abstract}
+Semantic segmentation of renal pathology images is difficult because tissue structures span an extreme range of scales, from large glomerular structures visible at 5$\times$ magnification to tiny peritubular capillaries that only become discernible at 40$\times$. Most prior work trains separate networks per structure type. Transformer-based models are stronger at segmenting large structures through global attention, while CNN-based models generally perform better on small, fine-grained objects, a distinction that maps directly onto the scale variation in renal tissue. Recent single-network methods condition encoder features and a dynamic segmentation head using learnable class and scale tokens, but remain limited to pure transformer or pure CNN backbones, inheriting these respective limitations. No prior hybrid CNN-transformer model applies this conditioning with a scale-aware intermediate representation. We propose ScaleHybrid, which propagates a single shared token pair through all three stages of a hybrid architecture: FiLM modulation in the CNN encoder, attention gating in a scale-aware transformer, and dynamic head parameterization in the decoder. Training these tokens end-to-end through the complete architecture yields a mean Dice score of 82.05\% across all six tissue types without requiring separate model weights or predefined inter-class hierarchies.
+
+\keywords{Renal Pathology \and Semantic Segmentation \and Hybrid CNN-Transformer \and Multi-Scale \and Learnable Tokens \and Dynamic Head}
+\end{abstract}
+%
+%
+% =====================================================
+% 1. INTRODUCTION AND RELATED WORK
+% =====================================================
+\section{Introduction}
+
+Chronic kidney disease affects hundreds of millions of people worldwide, and histopathological analysis of renal biopsies remains the gold standard for diagnosis and grading. A whole-slide biopsy image contains six tissue types that span a wide scale range: glomerular capsules (CAP) and tufts (TUFT) are visible at 5$\times$, proximal and distal tubules (PT, DT) and arteries (ART) at 10$\times$, and peritubular capillaries (PTC) only at 40$\times$. Most prior work trains separate networks per structure type~\cite{ronneberger2015unet,chen2018deeplabv3plus,jha2024transnetr}, which is computationally expensive and prevents sharing of morphological context across related structures. Annotations are also inherently partial: each patch is labelled for a single target structure even though other types are often visible in the same field of view.
+
+CNN models such as U-Net~\cite{ronneberger2015unet} and DeepLabV3+~\cite{chen2018deeplabv3plus} handle local detail well but have limited receptive fields, while transformers~\cite{chen2021transunet,xie2021segformer} capture global context at the cost of high computational expense at pathology resolutions. Hybrid approaches~\cite{jha2024transnetr} combine both but are not designed for variable magnification. A dynamic segmentation head generates task-specific convolution weights at inference time, allowing a single model to adapt its prediction layer per tissue type.
+
+The closest prior methods are HATs~\cite{hats2024} and PrPSeg~\cite{prpseg2024}, which each train a single network for all six tissue types using learnable class and scale tokens with a dynamic prediction head. HATs builds on EfficientSAM~\cite{xiong2024efficientsam} and injects tokens additively into encoder feature maps; PrPSeg uses a CNN backbone with anatomy-aware structural constraints. Both rely on predefined inter-class hierarchies to constrain predictions.
+
+We propose ScaleHybrid, the first hybrid CNN-transformer model for this task, which extends token conditioning beyond the encoder and prediction head by introducing a scale-aware transformer stage in between: FiLM-based affine modulation in the CNN encoder, token-gated deformable attention in the transformer, and dynamic head parameterization in the decoder. No predefined hierarchies are required. Our contributions are as follows:
+
+\begin{enumerate}
+    \item A unified hybrid CNN-transformer model that segments all six renal tissue types across 5$\times$, 10$\times$, and 40$\times$ magnification within a single network, without separate models per structure type.
+    \item A lightweight token conditioning mechanism (two learnable embedding tables with 5,120 parameters in total) that propagates the same class and scale token pair through FiLM modulation in the encoder~\cite{perez2018film}, attention gating in the transformer, and dynamic head parameterization in the decoder, trained end-to-end across all three stages simultaneously.
+    \item A scale-adaptive context module that routes encoder features through pyramid pooling for large glomerular structures (CAP, TUFT), high-resolution ASPP for small peritubular capillaries (PTC), and standard ASPP for medium structures (DT, PT, ART).
+\end{enumerate}
+
+
+% =====================================================
+% 2. METHODOLOGY
+% =====================================================
+\section{Methodology}
+
+\subsection{Overview}
+
+ScaleHybrid takes as input an RGB image patch $\mathbf{I} \in \mathbb{R}^{3 \times H \times W}$ (where $H = W = 512$), a task identifier $t \in \{0, \ldots, 5\}$ for the target tissue type, and a scale identifier $s \in \{0, 1, 2, 3\}$ for the magnification level (5$\times$, 10$\times$, 20$\times$, 40$\times$). The model produces a binary segmentation map $\hat{Y} \in \mathbb{R}^{2 \times H \times W}$ and an auxiliary boundary map $\hat{B} \in \mathbb{R}^{1 \times H \times W}$. The architecture has three main stages: a multi-scale CNN encoder, a scale-aware transformer encoder, and a multi-scale decoder with a dynamic segmentation head. The overall architecture is illustrated in Fig.~\ref{fig:architecture}.
+
+\begin{figure}[t]
+    \centering
+    % [PLACEHOLDER: Insert model architecture diagram here]
+    % The diagram should show:
+    % - Input image flowing into the CNN Encoder (stem + 4 residual stages)
+    % - Class token and Scale token flowing into/out of each component
+    % - CNN features [C1,C2,C3,C4] going to Transformer Encoder
+    % - Transformer features going to FPN Decoder
+    % - Dynamic Head generating the final segmentation output
+    \includegraphics[width=\textwidth]{scalehybrid.drawio.png}
+    \caption{Overview of ScaleHybrid. The model consists of (a) a multi-scale CNN encoder with scale-adaptive ASPP and FiLM conditioning, (b) a scale-aware transformer encoder with deformable and efficient attention guided by token-based gating, and (c) a multi-scale FPN decoder with a dynamic segmentation head. Learnable class and scale tokens condition all three stages.}
+    \label{fig:architecture}
+\end{figure}
+
+
+% -----------------------------------------------
+% 2.2 Learnable Tokens
+% -----------------------------------------------
+\subsection{Learnable Class and Scale Tokens}
+\label{sec:tokens}
+
+Two learnable embedding tables carry conditioning information through all three network stages. A class table $\mathbf{E}_\text{cls} \in \mathbb{R}^{6 \times 512}$ stores one vector per tissue type and a scale table $\mathbf{E}_\text{sls} \in \mathbb{R}^{4 \times 512}$ stores one per magnification level, totalling $5{,}120$ parameters. At runtime, tokens $\mathbf{c}_t = \mathbf{E}_\text{cls}[t]$ and $\mathbf{s}_s = \mathbf{E}_\text{sls}[s]$ are retrieved by index lookup and the same pair is used unchanged in every subsequent stage.
+
+
+% -----------------------------------------------
+% 2.3 Multi-Scale CNN Encoder
+% -----------------------------------------------
+\subsection{Multi-Scale CNN Encoder}
+\label{sec:encoder}
+
+The CNN encoder begins with a stem block (7$\times$7 conv, stride 2, Group Normalization~\cite{wu2018groupnorm}, ReLU, 3$\times$3 max pool), reducing resolution to $\frac{H}{4}\times\frac{W}{4}$. Four residual stages~\cite{he2016resnet} produce feature maps $\mathbf{C}_1$--$\mathbf{C}_4$ with 64, 128, 256, and 512 channels at $\frac{1}{4}$, $\frac{1}{8}$, $\frac{1}{16}$, and $\frac{1}{32}$ of the input resolution.
+
+\paragraph{Scale-Conditioned Convolution.}
+After Stage 4, a Scale-Conditioned Convolution module is applied to $\mathbf{C}_4$. It maintains four parallel $3 \times 3$ convolution branches with dilation rates 1, 2, 3, and 6, each capturing context at a different spatial extent. A lightweight attention network (global average pool followed by two linear layers) computes a soft weighting over the four branches, with an additional bias of 0.5 added to the weight corresponding to the current scale $s$. The output is the weighted sum:
+\begin{equation}
+    \mathbf{C}_4' = \sum_{i=0}^{3} \alpha_i \cdot f_i(\mathbf{C}_4), \quad \alpha = \text{Softmax}(g(\mathbf{C}_4) + \mathbf{b}_s)
+\end{equation}
+where $f_i$ is the $i$-th dilated convolution, $g$ is the attention network, and $\mathbf{b}_s$ is the scale bias vector.
+
+\paragraph{FiLM-Based Token Modulation.}
+The class token and scale token are added element-wise and passed through a two-layer MLP that produces a scale parameter $\gamma$ and a shift parameter $\beta$, both of dimension 512. These are applied to $\mathbf{C}_4'$ through Feature-wise Linear Modulation~\cite{perez2018film}:
+\begin{equation}
+    \mathbf{C}_4'' = \gamma \odot \mathbf{C}_4' + \beta
+\end{equation}
+
+\paragraph{Scale-Adaptive Context Aggregation.}
+Different tissue types require fundamentally different context aggregation strategies, so we introduce a Scale-Adaptive ASPP module that routes features based on the task identifier $t$:
+\begin{itemize}
+    \item \textbf{Large structures (CAP, TUFT):} A Pyramid Pooling Module (PPM)~\cite{zhao2017pspnet} pools $\mathbf{C}_4''$ at grid sizes $1\!\times\!1$, $2\!\times\!2$, $3\!\times\!3$, and $6\!\times\!6$ to capture global spatial context.
+    \item \textbf{Medium structures (DT, PT, ART):} Standard ASPP with dilation rates (1, 6, 12, 18) is applied to $\mathbf{C}_4''$.
+    \item \textbf{Small structures (PTC):} ASPP with reduced dilation rates (1, 3, 6) is applied to the higher-resolution $\mathbf{C}_2$ to preserve fine detail, then downsampled to $\mathbf{C}_4$ spatial dimensions through two stride-2 convolutions.
+\end{itemize}
+All three paths produce features of shape $[B, 256, 16, 16]$, which becomes the final $\mathbf{C}_4$.
+
+
+% -----------------------------------------------
+% 2.4 Scale-Aware Transformer Encoder
+% -----------------------------------------------
+\subsection{Scale-Aware Transformer Encoder}
+\label{sec:transformer}
+
+The transformer encoder refines the four CNN feature maps through attention-based reasoning. Each feature map is augmented with 2D sinusoidal positional encodings~\cite{vaswani2017attention} and flattened into a sequence.
+
+For high-resolution features ($\mathbf{C}_1$ and $\mathbf{C}_2$), we use efficient attention inspired by PVT~\cite{wang2021pvt} that reduces key and value spatial dimensions by 4$\times$ via strided convolution, avoiding the quadratic cost of standard self-attention.
+
+For lower-resolution features ($\mathbf{C}_3$ and $\mathbf{C}_4$), we use deformable attention~\cite{zhu2020deformable}, where each query predicts a small set of sampling offsets (4 points per head) rather than attending to all locations. The predicted offsets are scaled by a learnable magnification-dependent factor $\lambda_s$, one per scale level, initialized as:
+\begin{equation}
+    \mathbf{o}' = \mathbf{o} \cdot \lambda_s, \quad \lambda_s \in \{1.0,\; 1.5,\; 2.0,\; 3.0\} \; \text{(initialized, then learned)} \; \text{for} \; s \in \{0, 1, 2, 3\}
+\end{equation}
+These values encode the prior that small structures at high magnification need wider sampling, and are refined by backpropagation during training.
+
+\paragraph{Token-Based Attention Gating.}
+Within each transformer block, the class and scale tokens are concatenated and projected to produce a sigmoid gate that is multiplied with the attention output before the residual connection:
+\begin{equation}
+    \mathbf{x} = \mathbf{x} + \sigma\big(W_g[\mathbf{c}_t ; \mathbf{s}_s]\big) \odot \text{Attn}(\mathbf{x})
+\end{equation}
+where $\sigma$ is the sigmoid function and $W_g$ is a learned projection. Each transformer block uses pre-norm with Layer Normalization, a 4$\times$ MLP expansion ratio, and GELU activation. Efficient attention is applied to $\mathbf{C}_1$ and $\mathbf{C}_2$ (1 block each, with 2 and 4 heads respectively), while deformable attention processes $\mathbf{C}_3$ with 2 blocks and $\mathbf{C}_4$ with 1 block, both using 8 heads, producing refined feature maps $\mathbf{C}_1'$ through $\mathbf{C}_4'$.
+
+
+% -----------------------------------------------
+% 2.5 Multi-Scale Decoder
+% -----------------------------------------------
+\subsection{Multi-Scale Decoder}
+\label{sec:decoder}
+
+\paragraph{Feature Pyramid Fusion.}
+The decoder uses FPN-style~\cite{lin2017fpn} top-down fusion. Each feature map is projected to 256 channels via $1 \times 1$ lateral convolutions. Starting from $\mathbf{C}_4'$, each level is upsampled $2\times$ and added to the next lateral features, followed by a $3 \times 3$ convolution and a CBAM~\cite{woo2018cbam} attention module. At each step, upsampled features are concatenated with the FPN-level features and refined by two $3 \times 3$ ConvBlocks and another CBAM. A final $4\times$ bilinear upsampling and two convolutional blocks reduce channels from 256 to 64, yielding a feature map of shape $[B, 64, H, W]$.
+
+\paragraph{Boundary-Aware Head.}
+A boundary detection module runs in parallel with the dynamic segmentation head and provides auxiliary boundary supervision. It combines two complementary branches: a depthwise convolution initialized with a Laplacian kernel for edge detection, and a standard $3 \times 3$ convolution for gradient detection. Their outputs are concatenated and fused through a $1 \times 1$ convolution to produce boundary features, which are then passed through a lightweight prediction branch to generate an explicit boundary map $\hat{B}$. This boundary map is supervised against ground-truth edges extracted from the segmentation masks, pushing decoder features toward sharper representations.
+
+\paragraph{Dynamic Segmentation Head.}
+Rather than using a fixed final classification layer, we generate convolution weights dynamically at inference time, following a conditioned convolution approach~\cite{tian2020condinst,dai2021dynamic}. The 64-channel decoder output is first compressed to 8 channels by a small projection module (two convolutional layers). A controller network then applies global average pooling to the deepest FPN features $\mathbf{P}_4$ and produces a 162-parameter vector through two linear layers, capturing the visual content of the current input. These base parameters are conditioned by the shared class and scale tokens: $\mathbf{c}_t$ and $\mathbf{s}_s$ (both 512-dimensional) are concatenated to form a 1024-dimensional vector, which is projected through a two-layer MLP to produce a 162-dimensional conditioning bias. This bias is added to the visual-derived parameters to obtain the final head weights:
+\begin{equation}
+    \boldsymbol{\theta} = \text{Controller}(\mathbf{P}_4) + \text{MLP}([\mathbf{c}_t;\, \mathbf{s}_s])
+\end{equation}
+The 162 parameters in $\boldsymbol{\theta}$ are split into the weights and biases of a three-layer $1 \times 1$ convolution network ($8 \to 8 \to 2$ channels with ReLU between layers), applied per-sample using grouped convolution to produce the final segmentation logits $\hat{Y} \in \mathbb{R}^{B \times 2 \times H \times W}$.
+
+Because the same token pair is used here as in the encoder and transformer, the head weights are informed by representations shaped by all three stages simultaneously, adapting to both task identity and image appearance.
+
+
+% -----------------------------------------------
+% 2.6 Loss Function
+% -----------------------------------------------
+\subsection{Loss Function}
+\label{sec:loss}
+
+The model is trained with a composite loss:
+\begin{equation}
+    \mathcal{L} = \mathcal{L}_\text{dice} + \lambda_1 \mathcal{L}_\text{focal} + \lambda_2 \mathcal{L}_\text{boundary} + \lambda_3 \mathcal{L}_\text{aux}
+\end{equation}
+Dice loss~\cite{milletari2016vnet} optimizes foreground overlap and handles class imbalance. Focal loss~\cite{lin2017focal} focuses training on hard pixels. Boundary loss supervises the auxiliary boundary map against ground-truth edges extracted from segmentation masks. Auxiliary loss applies Dice and Focal losses to the output of a lightweight classifier attached to $\mathbf{C}_4$, providing deep supervision that improves gradient flow to early layers. The weighting coefficients are set to $\lambda_1 = 0.5$, $\lambda_2 = 0.5$, and $\lambda_3 = 0.4$, determined through cross-validation on the NEPTUNE~\cite{barisoni2013neptune} training set. Class-balanced weights~\cite{cui2019classbalanced} are computed from both sample counts and pixel-level foreground statistics to account for the uneven distribution of tissue types.
+
+
+% =====================================================
+% 3. EXPERIMENTS
+% =====================================================
+\section{Experiments}
+
+\subsection{Dataset}
+
+We evaluate ScaleHybrid on whole-slide images from the publicly available NEPTUNE study (Nephrotic Syndrome Study Network)~\cite{barisoni2013neptune}, a multicenter digital pathology initiative that provided slides across multiple staining protocols (H\&E, PAS, Silver, Trichrome) from patients with nephrotic syndrome. Pixel-level annotations covering six renal tissue types, namely distal tubules (DT), proximal tubules (PT), glomerular capsules (CAP), glomerular tufts (TUFT), arteries (ART), and peritubular capillaries (PTC), were established by prior renal pathology segmentation work~\cite{hats2024,prpseg2024}. The original whole-slide images are approximately $3{,}000 \times 3{,}000$ pixels at their native resolution. We extract $512 \times 512$ patches at the magnification best suited to each structure: 5$\times$ for CAP and TUFT, 10$\times$ for DT, PT, and ART, and 40$\times$ for PTC. Each patch is annotated for a single target tissue type, as the annotations reflect a per-structure labelling protocol where other structures visible in the same field of view remain unannotated. Patches are split into training, validation, and test sets at 70\%/10\%/20\%, stratified by tissue type.
+
+\subsection{Implementation Details}
+
+We implement ScaleHybrid in PyTorch and train it on a single NVIDIA GeForce GTX 1080 Ti GPU (11 GB). The complete model has 40.9M trainable parameters, of which only 5,120 belong to the class and scale token tables. We use the AdamW optimizer~\cite{loshchilov2019adamw} with a learning rate of $1 \times 10^{-4}$ and weight decay of $1 \times 10^{-2}$, together with a cosine annealing schedule preceded by a 5-epoch linear warmup. Training runs for 200 epochs with a batch size of 2 on $512 \times 512$ patches. We apply standard augmentation during training, including random horizontal and vertical flips, rotations up to $30^\circ$, color jittering, and elastic deformations. The source code will be made publicly available upon acceptance.
+
+\subsection{Quantitative Results}
+
+Table~\ref{tab:results_dice} reports per-class Dice scores for all methods.
+
+\begin{table}[htbp]
+    \caption{Per-class Dice scores (\%). Best results shown in \textbf{bold}. U-Net, DeepLabV3+, and TransNetR were trained as separate per-structure models; HATs, PrPSeg, and ScaleHybrid each use a single unified network for all six tissue types.}\label{tab:results_dice}
+    \centering
+    \begin{tabular}{lccccccc}
+        \toprule
+        \textbf{Method} & \textbf{DT} & \textbf{PT} & \textbf{CAP} & \textbf{TUFT} & \textbf{ART} & \textbf{PTC} & \textbf{Mean} \\
+        \midrule
+        U-Net & 51.04 & 52.11 & 58.87 & 59.12 & 45.39 & 50.30 & 52.80 \\
+        DeepLabV3+ & 61.76 & 82.22 & 77.93 & 81.97 & 71.27 & 52.56 & 71.29 \\
+        TransNetR & 65.67 & 75.32 & 73.54 & 73.69 & 77.16 & 49.01 & 69.07 \\
+        HATs & 64.03 & 79.30 & 91.97 & 93.02 & 62.19 & 68.30 & 76.47 \\
+        PrPSeg & 72.45 & 85.27 & \textbf{94.23} & \textbf{94.40} & 59.51 & 64.74 & 78.43 \\
+        \midrule
+        \textbf{ScaleHybrid (Ours)} & \textbf{75.34} & \textbf{86.92} & 86.48 & 87.84 & \textbf{86.39} & \textbf{69.32} & \textbf{82.05} \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+ScaleHybrid reaches a mean Dice score of 82.05\% across all six tissue types, the highest among all compared methods. On large glomerular structures, PrPSeg achieves the best per-class scores for CAP (94.23\%) and TUFT (94.40\%), reflecting the strength of its anatomy-aware constraints for structures with well-defined hierarchical relationships. ScaleHybrid scores 86.48\% and 87.84\% on these classes, clearly showing more room for improvement. It leads on all four remaining classes: ART (86.39\%), PT (86.92\%), PTC (69.32\%), and DT (75.34\%). PTC and DT remain the most challenging classes overall; peritubular capillaries are small and sparse at 40$\times$, while distal tubules show highly variable morphology across staining protocols. The overall mean advantage over PrPSeg (82.05\% vs. 78.43\%) shows that ScaleHybrid's gains on medium and small structures more than compensate for the slight deficit on the two largest glomerular structures.
+
+% -----------------------------------------------
+% 3.4 Ablation Study
+% -----------------------------------------------
+\subsection{Ablation Study}
+
+To evaluate the contribution of each proposed component, we conducted a
+step-by-step ablation on the NEPTUNE test set, incrementally adding modules
+to a clearly defined baseline: a vanilla ResNet-50 CNN encoder paired with a
+standard four-block ViT transformer and an FPN decoder, trained with the same
+loss, augmentation, and data split as ScaleHybrid but with no scale routing,
+no task conditioning, and a fixed two-class classification head.
+Results are summarised in Table~\ref{tab:ablation}.
+
+\begin{table}[htbp]
+    \caption{Ablation study on the NEPTUNE dataset (mean Dice, \%, averaged
+    over 3 runs; std $\leq$0.4\% across all variants).
+    \emph{Baseline}: ResNet-50 + ViT + FPN, no conditioning.
+    SA-ASPP\textsubscript{hard}: hard if-else routing on task ID $t$ only.
+    SA-ASPP\textsubscript{1-hot}: routing plus one-hot task/scale vectors
+    fed to conditioning stages, isolating the value of learned embeddings.
+    SA-ASPP\textsubscript{learn}: full learnable token tables (5{,}120
+    params). FiLM: FiLM token modulation; TGA: token-gated attention;
+    DSH: dynamic segmentation head; BAH: boundary-aware head.}
+    \label{tab:ablation}
+    \centering
+    \begin{tabular}{lcccccc}
+        \toprule
+        \textbf{Variant} & \textbf{SA-ASPP} & \textbf{FiLM} &
+        \textbf{TGA} & \textbf{DSH} & \textbf{BAH} &
+        \textbf{Mean Dice (\%)} \\
+        \midrule
+        Baseline          & --                          & & & & & 63.41 \\
+        Variant A         & \textsubscript{hard}        & & & & & 69.83 \\
+        Variant A$^\dagger$ & \textsubscript{1-hot}     & & & & & 71.57 \\
+        Variant B         & \textsubscript{learn}       & \checkmark & & & & 74.88 \\
+        Variant C         & \textsubscript{learn}       & \checkmark & \checkmark & & & 77.93 \\
+        Variant D         & \textsubscript{learn}       & \checkmark & \checkmark & \checkmark & & 80.61 \\
+        \textbf{ScaleHybrid} & \textsubscript{learn}   & \checkmark & \checkmark & \checkmark & \checkmark & \textbf{82.05} \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+Starting from a baseline mean Dice of 63.41\%, which sits below all
+compared single-network methods as expected for an unspecialised hybrid,
+the integration of hard scale-adaptive routing (SA-ASPP\textsubscript{hard})
+yields the largest single gain (+6.42\%), confirming that resolving the
+extreme 5$\times$--40$\times$ scale variation is the primary bottleneck.
+Replacing the hard routing decision with one-hot task and scale vectors
+(Variant~A$^\dagger$) adds a further +1.74\%, and upgrading to fully
+learnable token embeddings together with FiLM modulation (Variant~B)
+contributes an additional +3.31\%, demonstrating that the learned
+representations capture tissue-specific and magnification-specific context
+well beyond what a fixed one-hot signal can express.
+Token-gated attention in the transformer (Variant~C, +3.05\%) and the
+dynamic segmentation head (Variant~D, +2.68\%) provide further additive
+gains, with the boundary-aware head delivering a final improvement of
++1.44\% by sharpening contour predictions through explicit edge supervision.
+All gains are additive and diminishing; differences of $\geq$1.0\% are
+significant at $p{<}0.05$ by paired $t$-test on per-sample Dice scores.
+
+% =====================================================
+% 4. CONCLUSION
+% =====================================================
+\section{Conclusion}
+We presented ScaleHybrid, a hybrid CNN-transformer model for multi-scale renal pathology segmentation. Prior single-network methods condition encoder features and a dynamic segmentation head using learnable tokens, but do so within a pure transformer or pure CNN backbone. ScaleHybrid is the first hybrid to extend this conditioning into an intermediate scale-aware transformer stage, threading the same token pair through FiLM modulation in the CNN encoder, token-gated deformable attention in the transformer, and dynamic head parameterization in the decoder. On the NEPTUNE dataset, it reaches a mean Dice score of 82.05\% across all six tissue classes without relying on predefined inter-class hierarchies. Adding a new tissue type requires only appending a single learnable vector to the class embedding table, making the approach straightforward to extend to new domains. Fig.~\ref{fig:qualitative} shows representative qualitative segmentation results.
+
+\begin{figure}[!ht]
+    \centering
+    % [PLACEHOLDER: Insert qualitative comparison figure here]
+    % Columns: Input | Ground Truth | U-Net | DeepLabV3+ | TransNetR | HATs | PrPSeg | Ours
+    % Rows: one per tissue type
+    \includegraphics[width=\textwidth]{segmentationmasks.png}
+    \caption{Qualitative comparison of segmentation results. From left to right: input image, ground truth, U-Net, DeepLabV3+, TransNetR, HATs, PrPSeg, and ScaleHybrid (Ours).}
+    \label{fig:qualitative}
+\end{figure}
+
+
+% =====================================================
+% NOTE: Acknowledgments and Disclosure of Interest sections are optional
+% for the initial double-blind submission and have been omitted to save
+% page space. They will be reinserted in the camera-ready version if accepted.
+% =====================================================
+% REFERENCES
+% =====================================================
+\begin{thebibliography}{20}
+
+\bibitem{barisoni2013neptune}
+Barisoni, L., Nast, C.C., Jennette, J.C., Hodgin, J.B., Herzenberg, A.M., Lemley, K.V., Conway, C.M., Kopp, J.B., Kretzler, M., Lienczewski, C., Vento, S.M., Berthier, C.C., Nair, V., Pirani, C.L., Holzman, L.B.: Digital pathology evaluation in the multicenter nephrotic syndrome study network (NEPTUNE). Clinical Journal of the American Society of Nephrology \textbf{8}(8), 1449--1459 (2013)
+
+\bibitem{ronneberger2015unet}
+Ronneberger, O., Fischer, P., Brox, T.: U-Net: Convolutional networks for biomedical image segmentation. In: Navab, N., Hornegger, J., Wells, W.M., Frangi, A.F. (eds.) MICCAI 2015. LNCS, vol. 9351, pp. 234--241. Springer, Cham (2015)
+
+\bibitem{chen2018deeplabv3plus}
+Chen, L.C., Zhu, Y., Papandreou, G., Schroff, F., Adam, H.: Encoder-decoder with atrous separable convolution for semantic image segmentation. In: Ferrari, V., Hebert, M., Sminchisescu, C., Weiss, Y. (eds.) ECCV 2018. LNCS, vol. 11211, pp. 801--818. Springer, Cham (2018)
+
+\bibitem{chen2021transunet}
+Chen, J., Lu, Y., Yu, Q., Luo, X., Adeli, E., Wang, Y., Lu, L., Yuille, A.L., Zhou, Y.: TransUNet: Transformers make strong encoders for medical image segmentation. arXiv preprint arXiv:2102.04306 (2021)
+
+\bibitem{xie2021segformer}
+Xie, E., Wang, W., Yu, Z., Anandkumar, A., Alvarez, J.M., Luo, P.: SegFormer: Simple and efficient design for semantic segmentation with transformers. In: NeurIPS 2021, pp. 12077--12090 (2021)
+
+\bibitem{jha2024transnetr}
+Jha, D., Tomar, N.K., Sharma, V., Bagci, U.: TransNetR: Transformer-based residual network for polyp segmentation with multi-center out-of-distribution testing. In: MIDL 2023. PMLR, vol. 227, pp. 1--16 (2023)
+
+\bibitem{hats2024}
+Deng, R., Liu, Q., Cui, C., Yao, T., Xiong, J., Bao, S., Li, H., Yin, M., Wang, Y., Zhao, S., Tang, Y., Yang, H., Huo, Y.: HATs: Hierarchical adaptive taxonomy segmentation for panoramic pathology image analysis. In: Linguraru, M.G., Dou, Q., Feragen, A., Giannarou, S., Glocker, B., Lekadir, K., Schnabel, J.A. (eds.) MICCAI 2024. LNCS, vol. 15004, pp. 155--166. Springer, Cham (2024)
+
+\bibitem{prpseg2024}
+Deng, R., Liu, Q., Cui, C., Yao, T., Yue, J., Xiong, J., Yu, L., Wu, Y., Yin, M., Wang, Y., Zhao, S., Tang, Y., Yang, H., Huo, Y.: PrPSeg: Universal proposition learning for panoramic renal pathology segmentation. In: CVPR 2024, pp. 11736--11746 (2024)
+
+\bibitem{xiong2024efficientsam}
+Xiong, Y., Varadarajan, B., Wu, L., Xiang, X., Xiao, F., Zhu, C., Krishnamoorthi, R., Chandra, V.: EfficientSAM: Leveraged masked image pretraining for efficient segment anything. In: CVPR 2024, pp. 16110--16120 (2024)
+
+\bibitem{zhu2020deformable}
+Zhu, X., Su, W., Lu, L., Li, B., Wang, X., Dai, J.: Deformable DETR: Deformable transformers for end-to-end object detection. In: ICLR 2021 (2021)
+
+\bibitem{wang2021pvt}
+Wang, W., Xie, E., Li, X., Fan, D.P., Song, K., Liang, D., Lu, T., Luo, P., Shao, L.: Pyramid Vision Transformer: A versatile backbone for dense prediction without convolutions. In: ICCV 2021, pp. 568--578 (2021)
+
+\bibitem{perez2018film}
+Perez, E., Strub, F., de Vries, H., Dumoulin, V., Courville, A.: FiLM: Visual reasoning with a general conditioning layer. In: AAAI 2018, pp. 3942--3951 (2018)
+
+\bibitem{tian2020condinst}
+Tian, Z., Shen, C., Chen, H.: Conditional convolutions for instance segmentation. In: Vedaldi, A., Bischof, H., Brox, T., Frahm, J.M. (eds.) ECCV 2020. LNCS, vol. 12346, pp. 282--298. Springer, Cham (2020)
+
+\bibitem{dai2021dynamic}
+Dai, X., Chen, Y., Xiao, B., Chen, D., Liu, M., Yuan, L., Zhang, L.: Dynamic Head: Unifying object detection heads with attentions. In: CVPR 2021, pp. 7373--7382 (2021)
+
+\bibitem{he2016resnet}
+He, K., Zhang, X., Ren, S., Sun, J.: Deep residual learning for image recognition. In: CVPR 2016, pp. 770--778 (2016)
+
+\bibitem{wu2018groupnorm}
+Wu, Y., He, K.: Group Normalization. In: Ferrari, V., Hebert, M., Sminchisescu, C., Weiss, Y. (eds.) ECCV 2018. LNCS, vol. 11217, pp. 3--19. Springer, Cham (2018)
+
+\bibitem{lin2017fpn}
+Lin, T.Y., Dollar, P., Girshick, R., He, K., Hariharan, B., Belongie, S.: Feature Pyramid Networks for object detection. In: CVPR 2017, pp. 2117--2125 (2017)
+
+\bibitem{woo2018cbam}
+Woo, S., Park, J., Lee, J.Y., Kweon, I.S.: CBAM: Convolutional Block Attention Module. In: Ferrari, V., Hebert, M., Sminchisescu, C., Weiss, Y. (eds.) ECCV 2018. LNCS, vol. 11211, pp. 3--19. Springer, Cham (2018)
+
+\bibitem{lin2017focal}
+Lin, T.Y., Goyal, P., Girshick, R., He, K., Dollar, P.: Focal loss for dense object detection. In: ICCV 2017, pp. 2980--2988 (2017)
+
+\bibitem{milletari2016vnet}
+Milletari, F., Navab, N., Ahmadi, S.A.: V-Net: Fully convolutional neural networks for volumetric medical image segmentation. In: 3DV 2016, pp. 565--571 (2016)
+
+\bibitem{zhao2017pspnet}
+Zhao, H., Shi, J., Qi, X., Wang, X., Jia, J.: Pyramid Scene Parsing Network. In: CVPR 2017, pp. 2881--2890 (2017)
+
+\bibitem{cui2019classbalanced}
+Cui, Y., Jia, M., Lin, T.Y., Song, Y., Belongie, S.: Class-balanced loss based on effective number of samples. In: CVPR 2019, pp. 9268--9277 (2019)
+
+\bibitem{vaswani2017attention}
+Vaswani, A., Shazeer, N., Parmar, N., Uszkoreit, J., Jones, L., Gomez, A.N., Kaiser, L., Polosukhin, I.: Attention is all you need. In: NeurIPS 2017, pp. 5998--6008 (2017)
+
+\bibitem{loshchilov2019adamw}
+Loshchilov, I., Hutter, F.: Decoupled weight decay regularization. In: ICLR 2019 (2019)
+
+\end{thebibliography}
+
+\end{document}
